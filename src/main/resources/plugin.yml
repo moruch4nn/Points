@@ -1,0 +1,14 @@
+name: Points
+version: 1.0.0
+author: moru3_48
+prefix: Points
+website: https://moru3.dev/
+api-version: 1.18
+main: dev.moru3.points.Points
+
+commands:
+  points:
+    description: ポイントを確認するコマンドです。
+permissions:
+  points.admin:
+    default: op
