@@ -1,6 +1,7 @@
 package dev.moru3.points
 
 import dev.moru3.minepie.config.Config
+import dev.moru3.points.command.PointsCommand
 import org.bukkit.plugin.java.JavaPlugin
 
 class Points: JavaPlugin() {

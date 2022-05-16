@@ -1,6 +1,8 @@
-package dev.moru3.points
+package dev.moru3.points.command
 
 import dev.moru3.minepie.events.EventRegister.Companion.registerEvent
+import dev.moru3.points.Points
+import dev.moru3.points.exception.IllegalCommandException
 import net.md_5.bungee.api.ChatColor
 import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
