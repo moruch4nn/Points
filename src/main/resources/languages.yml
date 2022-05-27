@@ -20,6 +20,8 @@ command:
   sub:
     # %0: 削除するポイント数, %1: 該当するプレイヤー一覧
     success: "操作が成功しました。次のプレイヤーから %0 ポイントを削除しました: %1"
+  reload:
+    success: "&areloadが完了しました。"
 point:
   history:
     color_prefix: "&e"
@@ -27,4 +29,4 @@ point:
     history_not_found: "&eポイント履歴はありません。"
     separator: "&e===================================="
     # %0: 合計ポイント数
-    total: "合計ポイント: %0"
+    total: "&a&l合計ポイント: %0"

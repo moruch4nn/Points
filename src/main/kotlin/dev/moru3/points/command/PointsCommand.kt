@@ -16,10 +16,11 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.permissions.PermissionDefault
 import org.bukkit.scoreboard.Team
 import java.math.BigInteger
+import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.UUID
 
-class PointsCommand(main: Points): CommandExecutor, TabCompleter {
+class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
     // ポイントの追加や管理などの管理コマンドを実行するために必要な権限です。
     private val adminCommandPermission = "points.admin"
     // points.ymlファイルです。プレイヤーのポイントの情報が格納されています。
@@ -32,6 +33,8 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
     val players = mutableMapOf<String,OfflinePlayer>()
     // サーバーのメインスコアボードを保存。
     val mainScoreboard = Bukkit.getScoreboardManager()?.mainScoreboard?:throw IllegalStateException("failed to get scoreboard")
+    // 履歴を表示する際のフォーマット
+    val df = SimpleDateFormat("MM/dd HH:mm")
 
     init {
         // adminCommandPermission権限をサーバーに登録します。デフォルトはOPです。
@@ -40,7 +43,19 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
             setDescription("プレイヤーのポイントを設定、変更、表示する際などに必要な権限です。")
         }
         // プレイヤーがサーバーに参加した際にplayersに情報を保存。
-        main.registerEvent<PlayerJoinEvent> { players[this.player.name] = this.player }
+        main.registerEvent<PlayerJoinEvent> { this@PointsCommand.players[this.player.name] = this.player }
+        Bukkit.getOnlinePlayers().forEach { this.players[it.name] = it }
+    }
+
+    fun reloadConfig() {
+        // Configをreloadする。
+        main.config.reloadConfig()
+        // reloadが完了したあとにconfigを上書き。
+        this.config = main.config.config()?:throw IllegalStateException("failed to load 'plugin.yml'")
+        // languageConfigをreloadする。
+        main.languagesConfig.reloadConfig()
+        // reloadが完了したあとにconfigを上書き。
+        this.languages = main.languagesConfig.config()?:throw IllegalStateException("failed to load 'plugin.yml'")
     }
 
     /**
@@ -74,7 +89,8 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
                             // 結果を表示。
                             sender.sendMessage(languages.getTranslationMessage("command.sub.success",point,parsedSelector.map { it.name }.joinToString(",")))
                         }
-
+                        // configファイルを保存。
+                        main.config.saveConfig()
                     }
                     // 結果発表！！！！！！！！！！
                     "broadcast" -> {
@@ -90,6 +106,12 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
                         // へるぷなんてないよ^^
                         sender.sendMessage("へるぷなんてないよ^^\nひんと: セレクターは左から順番に処理されます。") // TODO ヘルプを作成する
                     }
+                    "reload" -> {
+                        // configをreload
+                        reloadConfig()
+                        // reload完了後にメッセージを送信。
+                        sender.sendMessage(languages.getTranslationMessage("command.reload.success"))
+                    }
                     else -> throw IllegalCommandException("command.error.illegal_arguments")
                 }
             } else {
@@ -99,12 +121,12 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
                 // >>> メッセージを表示 >>>
                 sender.sendMessage(languages.getTranslationMessage("point.history.header"))
                 try {
-                    sender.getPointHistory().joinToString("\n") { "${languages.getTranslationMessage("point.history.color_prefix")}${it.first}: ${it.second}" }
+                    sender.sendMessage(sender.getPointHistory().joinToString("\n") { "${languages.getTranslationMessage("point.history.color_prefix")}${df.format(it.first)}: +${it.second}".replace("+-","-") })
                 } catch(e: Exception) {
                     sender.sendMessage(languages.getTranslationMessage("point.history.history_not_found"))
                 }
                 sender.sendMessage(languages.getTranslationMessage("point.history.separator"))
-                sender.sendMessage(languages.getTranslationMessage("points.history.total",sender.getTotalPoint()))
+                sender.sendMessage(languages.getTranslationMessage("point.history.total",sender.getTotalPoint()))
                 // <<< メッセージを表示 <<<
             }
         } catch(e: IllegalCommandException) {
@@ -120,58 +142,80 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
 
     // TODO add comment to function below
     fun selectorTabComplete(args: List<String>): MutableList<String> {
-        val keyCategories = mutableListOf("players","teams","teams-filter","tags","tags-filter")
+        // フィルターのカテゴリ一覧をリスト化
+        val keyCategories = mutableListOf("players","teams","teams-filter","tags","tags-filter") // require only lowercase
+        // 引数一覧から最後のフィルターを取得し、引数がない場合はフィルターのカテゴリー一覧を返す。
         val last = args.lastOrNull()?:return keyCategories
+        // key(playersなど)を入れるための変数を宣言
         val key: String
+        // value(moru3_48,RedTownServerなど)を入れるための変数を宣言。nullの場合はバリューが宣言されていない。
         val value: String?
+        // キーバリューを区切る:で分割し、１つ目をkey、２つ目が存在する場合はvalueに代入する。
         last.split(":").also {
             key = it.first()
             value = it.getOrNull(1)
         }
+        // valueがnullかどうかを判別
         if(value!=null) {
+            // keyが正しいかをkeyCategoriesに入っているかどうかで判別。
             if(keyCategories.contains(key)) {
-                val values = value.split(",")
-                val lastValue = values.last()
+                // valueをバリューを区切る記号(,)で分割する
+                val values = value.lowercase().split(",")
+                // valuesの最後の値を変数に保存。
+                val lastValue = values.last().lowercase()
+                // valuesの次の補完候補を生成する。
                 val names = mutableListOf("all").also { list ->
+                    // キーによって次に生成する補完候補を変える。
                     when(key) {
                         "players" -> {
-                            list.addAll(this.players.values.mapNotNull { it.name })
+                            // キーがplayersの場合はプレイヤーの名前一覧を候補に入れる
+                            list.addAll(this.players.keys)
                         }
                         "teams","teams-filter" -> {
+                            // キーがチーム関連の場合はチームの一覧を候補に入れる。
                             list.addAll(mainScoreboard.teams.map { it.name })
                         }
                         "tags","tags-filter" -> {
+                            // キーがタグ関連の場合はタグの一覧を候補に入れる。
                             list.addAll(Bukkit.getWorlds().asSequence().map { it.entities }.flatten().map { it.scoreboardTags }.flatten().toSet())
                         }
                     }
                 }
+                // lastValueが空(valueの最後が補完済み、もしくは完全体)の場合は新しく次の補完候補を用意する。
                 return if(lastValue.isEmpty()) {
-                    mutableListOf("!").also { it.addAll(names) }
+                    names.apply { add("!") }
                 } else {
+                    // 現在の入力状態によって補完を変える。
                     when {
-                        names.any { lastValue.endsWith(it) } -> mutableListOf(",")
-                        lastValue.startsWith("!") -> names.map { "!$it" }.filter { it.startsWith(lastValue) }.toMutableList()
-                        else -> names.filter { it.startsWith(lastValue) }.toMutableList()
+                        // 現在のlastValueが完全体の場合は次の補完候補を新しく用意する。
+                        names.any { lastValue.endsWith(it.lowercase()) } -> names.map { "${lastValue},${it}" }
+                        // 現在のlastValueが!から始まっていた場合は補完候補をすべて否定形にする
+                        lastValue.startsWith("!") -> names.map { "!$it" }.toMutableList()
+                        // それ以外の場合は生成された補完候補をそのまま帰す。
+                        else -> names.toMutableList()
                     }
-                }
+                // 用意された補完候補をフィルターして返す。
+                }.filter { it.startsWith(lastValue) }.map { it.removePrefix(lastValue) }.map { "${key}:${value}${it}" }.toMutableList()
             } else {
-                return keyCategories.filter { it.startsWith(last) }.toMutableList()
+                // keyが正しくなかった場合はキー一覧をフィルターして返す。
+                return keyCategories.filter { it.startsWith(last.lowercase()) }.toMutableList()
             }
         } else {
-            return keyCategories.filter { it.startsWith(last) }.toMutableList()
+            // valueがnullだった場合はキー一覧をフィルターして返す。
+            return keyCategories.filter { it.startsWith(last.lowercase()) }.toMutableList()
         }
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): MutableList<String> {
-        val oneDArgs = mutableSetOf("add","sub","broadcast","test","help")
+        val oneDArgs = mutableSetOf("add","sub","broadcast","test","help","undo","reload")
         when(args.size) {
             1 -> {
-                return oneDArgs.filter { it.startsWith(args[0]) }.toMutableList()
+                return oneDArgs.filter { it.lowercase().startsWith(args[0]) }.toMutableList()
             }
             2 -> {
                 when(args[0]) {
                     "add", "sub" -> {
-                        return (0..9).map { it.toString() }.toMutableList().also { if(args[0].isEmpty()) { it.remove("0") } }
+                        return (0..9).map { it.toString() }.toMutableList().also { if(args[1].isEmpty()) { it.remove("0") } }.map { "${args[1]}${it}" }.toMutableList()
                     }
                     "test" -> { return selectorTabComplete(args.toList().subList(1,args.size)) }
                 }
@@ -205,7 +249,7 @@ class PointsCommand(main: Points): CommandExecutor, TabCompleter {
      * @return カラーコード変換、文字列置換が完了したConfigのメッセージ。
      */
     private fun FileConfiguration.getTranslationMessage(translationKey: String,vararg values: Any): String {
-        var result = ChatColor.translateAlternateColorCodes('&',this.getString(translationKey))?:"${ChatColor.RED}not found message that match this translation key: $translationKey"
+        var result = ChatColor.translateAlternateColorCodes('&',this.getString(translationKey)?:"${ChatColor.RED}not found message that match this translation key: $translationKey")
         values.forEachIndexed { index, s -> result = result.replace("%${index}",s.toString()) }
         return result
     }
