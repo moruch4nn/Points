@@ -2,6 +2,9 @@ package dev.moru3.points.command
 
 import dev.moru3.minepie.events.EventRegister.Companion.registerEvent
 import dev.moru3.points.Points
+import dev.moru3.points.database.Histories
+import dev.moru3.points.database.OperationHistory
+import dev.moru3.points.database.Players
 import dev.moru3.points.exception.IllegalCommandException
 import net.md_5.bungee.api.ChatColor
 import org.bukkit.Bukkit
@@ -15,6 +18,10 @@ import org.bukkit.entity.Player
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.permissions.PermissionDefault
 import org.bukkit.scoreboard.Team
+import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.transactions.transaction
+import java.math.BigDecimal
 import java.math.BigInteger
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -23,12 +30,10 @@ import java.util.UUID
 class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
     // ポイントの追加や管理などの管理コマンドを実行するために必要な権限です。
     private val adminCommandPermission = "points.admin"
-    // points.ymlファイルです。プレイヤーのポイントの情報が格納されています。
-    private var config: FileConfiguration = main.config.config()?:throw IllegalStateException("failed to load 'plugin.yml'")
     // languages.ymlファイルです。プラグインのメッセージなどの言語関連が格納されています。
     private var languages: FileConfiguration = main.languagesConfig.config()?:throw IllegalStateException("failed to load 'plugin.yml'")
     // 設定できるポイントの最低値です。
-    private val minSettablePoint = BigInteger.ZERO
+    private val minSettablePoint = 0L
     // サーバー起動中に参加したすべてのプレイヤーが格納されています。
     val players = mutableMapOf<String,OfflinePlayer>()
     // サーバーのメインスコアボードを保存。
@@ -43,15 +48,13 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
             setDescription("プレイヤーのポイントを設定、変更、表示する際などに必要な権限です。")
         }
         // プレイヤーがサーバーに参加した際にplayersに情報を保存。
-        main.registerEvent<PlayerJoinEvent> { this@PointsCommand.players[this.player.name] = this.player }
+        main.registerEvent<PlayerJoinEvent> { this@PointsCommand.players[it.player.name] = it.player }
         Bukkit.getOnlinePlayers().forEach { this.players[it.name] = it }
     }
 
     fun reloadConfig() {
         // Configをreloadする。
         main.config.reloadConfig()
-        // reloadが完了したあとにconfigを上書き。
-        this.config = main.config.config()?:throw IllegalStateException("failed to load 'plugin.yml'")
         // languageConfigをreloadする。
         main.languagesConfig.reloadConfig()
         // reloadが完了したあとにconfigを上書き。
@@ -64,13 +67,15 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         // IllegalCommandExceptionがthrowされた際にtranslationKeyをもとにエラーを送信してreturnする。
         try {
+            check(sender is Player) { throw IllegalCommandException("command.error.illegal_sender") }
             // 引数が指定されているかつ、プレイヤーが必要な権限を持っている場合はポイントの追加や削除、表示などの処理の実行を可能にし、ない場合はどんなargumentが存在する場合でも自分のポイントを表示するようにしています。
-            if(sender.hasPermission(adminCommandPermission)&&args.isNotEmpty()) {
+            if(args.isNotEmpty()&&sender.hasPermission(adminCommandPermission)) {
                 when(args.getOrNull(0)) {
                     // ポイントを追加、削除するコマンド。
                     "add", "sub" -> {
+                        val id = System.currentTimeMillis()
                         // args1にポイントが数字で指定されている場合はbigintegerに変換、指定されていない、もしくは正常に変換できなかった場合はエラーを表示。
-                        val point = args.getOrNull(1)?.toBigInteger()?:throw IllegalCommandException("command.error.need_specification_point")
+                        val point = args.getOrNull(1)?.toLongOrNull()?:throw IllegalCommandException("command.error.need_specification_point")
                         // ポイント数が0以下の場合はエラーを表示。
                         if(point <= minSettablePoint) { throw IllegalArgumentException("command.error.point_below_min") }
                         // セレクターが指定されていない場合はエラーを表示。
@@ -80,12 +85,12 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                         // args0がaddの場合はポイントを追加、それ以外(sub)の場合は削除。
                         if(args[0]=="add") {
                             // 該当するプレイヤー全員にポイントを追加。
-                            parsedSelector.forEach { it.addPoint(point) }
+                            parsedSelector.forEach { it.addPoint(sender.uniqueId,id,point) }
                             // 結果を表示。
                             sender.sendMessage(languages.getTranslationMessage("command.add.success",point,parsedSelector.map { it.name }.joinToString(",")))
                         } else {
                             // 該当するプレイヤー全員からポイントを削除。
-                            parsedSelector.forEach { it.subPoint(point) }
+                            parsedSelector.forEach { it.subPoint(sender.uniqueId,id,point) }
                             // 結果を表示。
                             sender.sendMessage(languages.getTranslationMessage("command.sub.success",point,parsedSelector.map { it.name }.joinToString(",")))
                         }
@@ -94,12 +99,32 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                     }
                     // 結果発表！！！！！！！！！！
                     "broadcast" -> {
-
+                        val isWithoutOp = args.getOrNull(1)?.toBooleanStrictOrNull()?:false
+                        val points = transaction { Players.selectAll()
+                            .map { it[Players.uniqueId] to it[Players.name] } }
+                            .map { Bukkit.getOfflinePlayer(it.first) to it.second }
+                            .filter { !isWithoutOp||!it.first.isOp }
+                            .map { it.first to (it.second to it.first.getTotalPoint()) }
+                            .sortedBy { it.second.second }.reversed()
+                            .mapIndexed { index, pair -> index+1 to pair }
+                        points.forEach { (rank,pair) ->
+                            when {
+                                rank <= 5 -> { Bukkit.broadcastMessage("${languages.getTranslationMessage("point.broadcast.${rank}_color")}${rank}.${pair.second.first}: ${pair.second.second} Point") }
+                                else -> { return@forEach }
+                            }
+                        }
+                        points.forEach { (rank,pair) ->
+                            pair.first.player?.sendMessage(languages.getTranslationMessage("point.broadcast.separator"))
+                            pair.first.player?.sendMessage(languages.getTranslationMessage("point.broadcast.your_rank_is",pair.second.first,rank,pair.second.second))
+                        }
                     }
                     // セレクターのテストをするためのコマンドです。
                     "test" -> {
                         // セレクターを解析し、該当するプレイヤー一覧を表示する。
                         sender.sendMessage(languages.getTranslationMessage("command.test.result", parseSelector(args.toList().subList(1,args.size)).map { it.name }.joinToString(" ")))
+                    }
+                    "test2" -> {
+
                     }
                     // ヘルプを出します。(だしません)
                     "help" -> {
@@ -112,20 +137,50 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                         // reload完了後にメッセージを送信。
                         sender.sendMessage(languages.getTranslationMessage("command.reload.success"))
                     }
+                    "undo" -> {
+                        transaction {
+                            // 実行者が行った最後の操作を取得
+                            val lastOperation = OperationHistory.select(OperationHistory.uniqueId.eq(sender.uniqueId) and not(OperationHistory.cancelled))
+                                .reversed().firstOrNull()
+                            // 一度も操作をしていない場合はエラーを送信して処理を終了
+                            checkNotNull(lastOperation) { throw IllegalCommandException(languages.getTranslationMessage("command.undo.operation_not_found")) }
+                            // 対応する実行履歴にキャンセルのフラグをセットする
+                            OperationHistory.update({ OperationHistory.id eq lastOperation[OperationHistory.id] }) { it[cancelled] = true }
+                            // 対応するポイント履歴にキャンセルのフラグを立てる。
+                            Histories.update({Histories.id eq lastOperation[OperationHistory.id]}) { it[cancelled] = true }
+                            // 対応する履歴を取得してメッセージを送信(影響人数、影響ポイント)
+                            Histories.select(Histories.id eq lastOperation[OperationHistory.id])
+                                .also { sender.sendMessage(languages.getTranslationMessage("command.undo.success",it.count(),it.first()[Histories.point])) }
+                        }
+                    }
+                    "redo" -> {
+                        transaction {
+                            // 実行者が行った最後のundoを取得
+                            val lastOperation = OperationHistory.select(OperationHistory.uniqueId.eq(sender.uniqueId) and OperationHistory.cancelled).firstOrNull()
+                            // 一度もundoをしていない場合はエラーを送信して処理を終了
+                            checkNotNull(lastOperation) { throw IllegalCommandException(languages.getTranslationMessage("command.redo.operation_not_found")) }
+                            // 対応する実行履歴のキャンセルのフラグを外す
+                            OperationHistory.update({ OperationHistory.id eq lastOperation[OperationHistory.id] }) { it[cancelled] = false }
+                            // 対応するポイント履歴にキャンセルのフラグを外す
+                            Histories.update({Histories.id eq lastOperation[OperationHistory.id]}) { it[cancelled] = false }
+                            // 対応する履歴を取得してメッセージを送信(影響人数、影響ポイント)
+                            Histories.select(Histories.id eq lastOperation[OperationHistory.id])
+                                .also { sender.sendMessage(languages.getTranslationMessage("command.redo.success",it.count(),it.first()[Histories.point])) }
+                        }
+                    }
                     else -> throw IllegalCommandException("command.error.illegal_arguments")
                 }
             } else {
-                //senderがプレイヤーじゃない場合はエラーを送信して処理を終了する。
-                check(sender is Player) { throw IllegalCommandException("command.error.illegal_sender") }
-
                 // >>> メッセージを表示 >>>
                 sender.sendMessage(languages.getTranslationMessage("point.history.header"))
-                try {
-                    sender.sendMessage(sender.getPointHistory().joinToString("\n") { "${languages.getTranslationMessage("point.history.color_prefix")}${df.format(it.first)}: +${it.second}".replace("+-","-") })
-                } catch(e: Exception) {
-                    sender.sendMessage(languages.getTranslationMessage("point.history.history_not_found"))
-                }
                 sender.sendMessage(languages.getTranslationMessage("point.history.separator"))
+                val pointHistory = sender.getPointHistory()
+                if(pointHistory.isEmpty()) {
+                    sender.sendMessage(languages.getTranslationMessage("point.history.history_not_found"))
+                } else {
+                    sender.sendMessage(pointHistory.joinToString("\n") { "${languages.getTranslationMessage("point.history.color_prefix")}${df.format(it.first)}: ${languages.getTranslationMessage("point.history.plus_prefix")}+${it.second}".replace("+-","${languages.getTranslationMessage("point.history.minus_prefix")}-") })
+                }
+                // sender.sendMessage(languages.getTranslationMessage("point.history.separator"))
                 sender.sendMessage(languages.getTranslationMessage("point.history.total",sender.getTotalPoint()))
                 // <<< メッセージを表示 <<<
             }
@@ -207,7 +262,7 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): MutableList<String> {
-        val oneDArgs = mutableSetOf("add","sub","broadcast","test","help","undo","reload")
+        val oneDArgs = mutableSetOf("add","sub","broadcast","test","help","undo","redo","reload")
         when(args.size) {
             1 -> {
                 return oneDArgs.filter { it.lowercase().startsWith(args[0]) }.toMutableList()
@@ -231,8 +286,10 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
      * @receiver player 対象のプレイヤー。
      * @return 変更日時とポイントの変化量(相対値)です。
      */
-    private fun OfflinePlayer.getPointHistory(): List<Pair<Date,BigInteger>> {
-        return config.getConfigurationSection("${this.uniqueId}.history")?.getKeys(false)?.map { Date(it.toLongOrNull()?:throw IllegalStateException("found invalid value in player's point history")) to (config.getString("${this.uniqueId}.history.${it}")?.toBigIntegerOrNull()?:BigInteger.ZERO) }?:throw IllegalArgumentException("player's point history not found")
+    private fun OfflinePlayer.getPointHistory(): List<Pair<Date,Long>> { return getPointHistory(this.uniqueId) }
+
+    private fun getPointHistory(uniqueId: UUID): List<Pair<Date,Long>> {
+        return transaction { Histories.select(Histories.uniqueId.eq(uniqueId) and not(Histories.cancelled)).map { it[Histories.timestamp].toDate() to it[Histories.point] } }
     }
 
     /**
@@ -240,7 +297,13 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
      * @receiver 対象のプレイヤー。
      * @return プレイヤーのポイントの合計値。
      */
-    private fun OfflinePlayer.getTotalPoint(): BigInteger = config.getString("${this.uniqueId}.total")?.toBigInteger()?:BigInteger.ZERO
+    private fun OfflinePlayer.getTotalPoint(): BigDecimal {
+        return getTotalPoint(this.uniqueId)
+    }
+
+    private fun getTotalPoint(uniqueId: UUID): BigDecimal {
+        return this.getPointHistory(uniqueId).map { it.second }.sumOf { BigDecimal(it) }
+    }
 
     /**
      * Configからメッセージを取得し、自動でカラーコード変換、置換文字列を置き換えます。
@@ -348,20 +411,22 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
      * プレイヤーにポイントを追加します。
      * @receiver ポイントを追加するプレヤー。
      * @param value 何ポイント追加するかをBigIntegerで。
-     * @return 追加したあとのプレイヤーの合計ポイント数。
+     * @return 操作番号(index)
      */
-    fun OfflinePlayer.addPoint(value: BigInteger): BigInteger {
-        val total = maxOf((config.getString("${this.uniqueId}.total")?.toBigIntegerOrNull()?: BigInteger.ZERO) + value, BigInteger.ZERO)
-        config.set("${this.uniqueId}.history.${Date().time}",value)
-        config.set("${this.uniqueId}.total",total)
-        return total
+    fun OfflinePlayer.addPoint(executor:UUID,id: Long,value: Long) {
+        transaction {
+            OperationHistory.deleteWhere { OperationHistory.cancelled and OperationHistory.uniqueId.eq(executor) }
+            Histories.deleteWhere { Histories.cancelled and Histories.uniqueId.eq(executor) }
+            try { OperationHistory.insert { it[OperationHistory.id] = id;it[uniqueId] = executor } } catch(_: Exception) {}
+            Histories.insert { it[Histories.id] = id;it[uniqueId] = this@addPoint.uniqueId;it[point] = value }
+        }
     }
 
     /**
      * プレイヤーからポイントを削除します。
      * @receiver ポイントを削除するプレヤー。
      * @param value 何ポイント削除するかをBigIntegerで。
-     * @return 削除したあとのプレイヤーの合計ポイント数。
+     * @return 操作番号(index)
      */
-    fun OfflinePlayer.subPoint(value: BigInteger): BigInteger = this.addPoint(-value)
+    fun OfflinePlayer.subPoint(executor:UUID,id: Long, value: Long) = this.addPoint(executor,id,-value)
 }

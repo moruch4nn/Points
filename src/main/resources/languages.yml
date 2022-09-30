@@ -1,6 +1,6 @@
 command:
   error:
-    illegal_sender: "コマンドはコンソールから実行する必要があります。"
+    illegal_sender: "コマンドはコンソール以外から実行する必要があります。"
     illegal_arguments: "コマンドの引数が正しくありません。 `/points help` もしくはTabCompleteを参考にもう一度引数を確認してください。"
     need_specification_point: "ポイントを引数2に`数字`で指定してください。例: /points (add/sub) >>point:数字<< (selector)"
     point_below_min: "ポイントは1以上である必要があります。"
@@ -22,11 +22,35 @@ command:
     success: "&a操作が成功しました。次のプレイヤーから %0 ポイントを削除しました: %1"
   reload:
     success: "&areloadが完了しました。"
+  undo:
+    operation_not_found: "巻き戻せる操作がありません。"
+    success: "&a%0 人に対する %1 ポイント付与の操作を取り消しました。"
+  redo:
+    operation_not_found: "取り消せる操作がありません。"
+    success: "&a%0 人に対しての %1 ポイント付与の取り消しを巻き戻しました。"
 point:
   history:
-    color_prefix: "&e"
+    color_prefix: "&7"
+    plus_prefix: "&a"
+    minus_prefix: "&c"
     header: "&eポイント履歴"
     history_not_found: "&eポイント履歴はありません。"
     separator: "&e===================================="
     # %0: 合計ポイント数
     total: "&a&l合計ポイント: %0点"
+  broadcast:
+    result: "&e&l結果発表"
+    without_op: "運営以外"
+    1_color: "&e"
+    2_color: "&7"
+    3_color: "&6"
+    4_color: "&f"
+    5_color: "&f"
+    6_color: "&f"
+    7_color: "&f"
+    8_color: "&f"
+    9_color: "&f"
+    10_color: "&f"
+    other_color: "&f"
+    separator: "&e===================================="
+    your_rank_is: "&aあなた(%0)は %1位でした！(%2ポイント)"

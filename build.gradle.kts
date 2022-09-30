@@ -17,7 +17,9 @@ repositories {
 dependencies {
     testImplementation(kotlin("test"))
     implementation("org.spigotmc:spigot-api:1.18.2-R0.1-SNAPSHOT")
-    implementation("com.github.moru348:MinePie:87099537a9")
+    implementation("com.zaxxer:HikariCP:5.0.1")
+    implementation("com.github.moru348:MinePie:d5a75463ed")
+    implementation("org.jetbrains.exposed:exposed:0.17.14")
 }
 
 tasks.test {
@@ -25,7 +27,7 @@ tasks.test {
 }
 
 tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "1.8"
+    kotlinOptions.jvmTarget = "17"
 }
 
 tasks.named("build") {
