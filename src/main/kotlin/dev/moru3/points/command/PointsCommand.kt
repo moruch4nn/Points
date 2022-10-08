@@ -114,8 +114,10 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                             }
                         }
                         points.forEach { (rank,pair) ->
-                            pair.first.player?.sendMessage(languages.getTranslationMessage("point.broadcast.separator"))
-                            pair.first.player?.sendMessage(languages.getTranslationMessage("point.broadcast.your_rank_is",pair.second.first,rank,pair.second.second))
+                            val player = pair.first.player?:return@forEach
+                            player.sendTitle("${ChatColor.YELLOW}結果発表！",languages.getTranslationMessage("point.broadcast.your_rank_is",pair.second.first,rank,pair.second.second),20,100,10)
+                            player.sendMessage(languages.getTranslationMessage("point.broadcast.separator"))
+                            player.sendMessage(languages.getTranslationMessage("point.broadcast.your_rank_is",pair.second.first,rank,pair.second.second))
                         }
                     }
                     // セレクターのテストをするためのコマンドです。
