@@ -2,9 +2,9 @@ command:
   error:
     illegal_sender: "コマンドはコンソール以外から実行する必要があります。"
     illegal_arguments: "コマンドの引数が正しくありません。 `/points help` もしくはTabCompleteを参考にもう一度引数を確認してください。"
-    need_specification_point: "ポイントを引数2に`数字`で指定してください。例: /points (add/sub) >>point:数字<< (selector)"
+    need_specify_point: "ポイントを引数2に`数字`で指定してください。例: /points (add/sub) >>point:数字<< (selector)"
     point_below_min: "ポイントは1以上である必要があります。"
-    need_specification_selector: "セレクターを引数3に指定してください。例: /points (add/sub) (point:数字) >>selector<<"
+    need_specify_selector: "セレクターを引数3に指定してください。例: /points (add/sub) (point:数字) >>selector<<"
     illegal_selector: "無効なセレクターが含まれています: %0"
     # %0: 見つからなかったプレイヤー名,
     player_not_found: "プレイヤーが見つかりません。TAB補完で出てくるプレイヤーのみ入力してください: %0"

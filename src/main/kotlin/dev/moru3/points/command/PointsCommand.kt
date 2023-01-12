@@ -7,6 +7,8 @@ import dev.moru3.points.database.OperationHistory
 import dev.moru3.points.database.Players
 import dev.moru3.points.exception.IllegalCommandException
 import net.md_5.bungee.api.ChatColor
+import net.md_5.bungee.api.chat.ClickEvent
+import net.md_5.bungee.api.chat.TextComponent
 import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
 import org.bukkit.command.Command
@@ -22,7 +24,6 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.math.BigDecimal
-import java.math.BigInteger
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.UUID
@@ -75,11 +76,11 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                     "add", "sub" -> {
                         val id = System.currentTimeMillis()
                         // args1にポイントが数字で指定されている場合はbigintegerに変換、指定されていない、もしくは正常に変換できなかった場合はエラーを表示。
-                        val point = args.getOrNull(1)?.toLongOrNull()?:throw IllegalCommandException("command.error.need_specification_point")
+                        val point = args.getOrNull(1)?.toLongOrNull()?:throw IllegalCommandException("command.error.need_specify_point")
                         // ポイント数が0以下の場合はエラーを表示。
                         if(point <= minSettablePoint) { throw IllegalArgumentException("command.error.point_below_min") }
                         // セレクターが指定されていない場合はエラーを表示。
-                        if(args.size < 2) { throw IllegalCommandException("command.error.need_specification_selector") }
+                        if(args.size < 2) { throw IllegalCommandException("command.error.need_specify_selector") }
                         // セレクターを解析。(args1はポイントなのでargs2以上から)
                         val parsedSelector = parseSelector(args.toList().subList(2,args.size))
                         // args0がaddの場合はポイントを追加、それ以外(sub)の場合は削除。
@@ -125,19 +126,52 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                         // セレクターを解析し、該当するプレイヤー一覧を表示する。
                         sender.sendMessage(languages.getTranslationMessage("command.test.result", parseSelector(args.toList().subList(1,args.size)).map { it.name }.joinToString(" ")))
                     }
-                    "test2" -> {
-
-                    }
                     // ヘルプを出します。(だしません)
                     "help" -> {
                         // へるぷなんてないよ^^
-                        sender.sendMessage("へるぷなんてないよ^^\nひんと: セレクターは左から順番に処理されます。") // TODO ヘルプを作成する
+                        sender.sendMessage("${ChatColor.AQUA}/points add [point:num] [selector]")
+                        sender.sendMessage("${ChatColor.GOLD} - プレイヤーにポイントを追加します。")
+
+                        sender.sendMessage("${ChatColor.AQUA}/points sub [point:num] [selector]")
+                        sender.sendMessage("${ChatColor.GOLD} - プレイヤーからポイントを削除します。")
+
+                        sender.sendMessage("${ChatColor.AQUA}/points broadcast")
+                        sender.sendMessage("${ChatColor.GOLD} - 全員に自分の順位とともにtop5のプレイヤーを表示します。")
+
+                        sender.sendMessage("${ChatColor.AQUA}/points test [selector]")
+                        sender.sendMessage("${ChatColor.GOLD} - セレクター[selector]が正しいかのテストができます。")
+
+                        sender.sendMessage("${ChatColor.AQUA}/points undo")
+                        sender.sendMessage("${ChatColor.GOLD} - 前に行ったadd/subの操作を取り消せます。")
+
+                        sender.sendMessage("${ChatColor.AQUA}/points undo")
+                        sender.sendMessage("${ChatColor.GOLD} - 前に行ったundoの操作を取り消せます。")
+
+                        sender.sendMessage("${ChatColor.AQUA}/points history [player]")
+                        sender.sendMessage("${ChatColor.GOLD} - [player]のポイント付与履歴を確認できます。")
+
+                        val howToUseSelector = TextComponent("${ChatColor.WHITE}セレクターの使い方は")
+                        val link = TextComponent("${ChatColor.GOLD}${ChatColor.UNDERLINE}[Notion]")
+                        link.clickEvent = ClickEvent(ClickEvent.Action.OPEN_URL,"https://moruch4nn.notion.site/Points-RedTownServer-a1e390ccbff04a05a7058ed21257220d")
+                        howToUseSelector.addExtra(link)
+                        howToUseSelector.addExtra("${ChatColor.WHITE}の${ChatColor.RED}プレイヤーセレクター${ChatColor.WHITE}をご覧ください。")
                     }
                     "reload" -> {
                         // configをreload
                         reloadConfig()
                         // reload完了後にメッセージを送信。
                         sender.sendMessage(languages.getTranslationMessage("command.reload.success"))
+                    }
+                    "history" -> {
+                        val player = Bukkit.getPlayer(args.getOrNull(1)?:throw IllegalCommandException("command.error.illegal_arguments"))?:throw IllegalCommandException("command.error.player_not_found")
+                        val pointHistory = player.getPointHistory()
+                        if(pointHistory.isEmpty()) {
+                            // ポイント履歴がないことを伝える。
+                            sender.sendMessage(languages.getTranslationMessage("point.history.history_not_found"))
+                        } else {
+                            // ポイント履歴をプレイヤーに送信。
+                            sender.sendMessage(pointHistory.asColoredString())
+                        }
                     }
                     "undo" -> {
                         transaction {
@@ -151,8 +185,8 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                             // 対応するポイント履歴にキャンセルのフラグを立てる。
                             Histories.update({Histories.id eq lastOperation[OperationHistory.id]}) { it[cancelled] = true }
                             // 対応する履歴を取得してメッセージを送信(影響人数、影響ポイント)
-                            Histories.select(Histories.id eq lastOperation[OperationHistory.id])
-                                .also { sender.sendMessage(languages.getTranslationMessage("command.undo.success",it.count(),it.first()[Histories.point])) }
+                            val result = Histories.select(Histories.id eq lastOperation[OperationHistory.id])
+                            sender.sendMessage(languages.getTranslationMessage("command.undo.success",result.count(),result.first()[Histories.point]))
                         }
                     }
                     "redo" -> {
@@ -178,9 +212,11 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                 sender.sendMessage(languages.getTranslationMessage("point.history.separator"))
                 val pointHistory = sender.getPointHistory()
                 if(pointHistory.isEmpty()) {
+                    // ポイント履歴がないことを伝える。
                     sender.sendMessage(languages.getTranslationMessage("point.history.history_not_found"))
                 } else {
-                    sender.sendMessage(pointHistory.joinToString("\n") { "${languages.getTranslationMessage("point.history.color_prefix")}${df.format(it.first)}: ${languages.getTranslationMessage("point.history.plus_prefix")}+${it.second}".replace("+-","${languages.getTranslationMessage("point.history.minus_prefix")}-") })
+                    // ポイント履歴をプレイヤーに送信。
+                    sender.sendMessage(pointHistory.asColoredString())
                 }
                 // sender.sendMessage(languages.getTranslationMessage("point.history.separator"))
                 sender.sendMessage(languages.getTranslationMessage("point.history.total",sender.getTotalPoint()))
@@ -264,7 +300,7 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): MutableList<String> {
-        val oneDArgs = mutableSetOf("add","sub","broadcast","test","help","undo","redo","reload")
+        val oneDArgs = mutableSetOf("add","sub","broadcast","test","help","undo","redo","reload","history")
         when(args.size) {
             1 -> {
                 return oneDArgs.filter { it.lowercase().startsWith(args[0]) }.toMutableList()
@@ -273,6 +309,9 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                 when(args[0]) {
                     "add", "sub" -> {
                         return (0..9).map { it.toString() }.toMutableList().also { if(args[1].isEmpty()) { it.remove("0") } }.map { "${args[1]}${it}" }.toMutableList()
+                    }
+                    "history" -> {
+                        return Bukkit.getOnlinePlayers().map { it.name }.filter { it.startsWith(args[1]) }.toMutableList()
                     }
                     "test" -> { return selectorTabComplete(args.toList().subList(1,args.size)) }
                 }
@@ -292,6 +331,16 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
 
     private fun getPointHistory(uniqueId: UUID): List<Pair<Date,Long>> {
         return transaction { Histories.select(Histories.uniqueId.eq(uniqueId) and not(Histories.cancelled)).map { it[Histories.timestamp].toDate() to it[Histories.point] } }
+    }
+
+    private fun List<Pair<Date, Long>>.asColoredString(): String {
+        // 色 §a とか。
+        val color = languages.getTranslationMessage("point.history.color_prefix")
+        // プラスマークの色。
+        val plusColor = languages.getTranslationMessage("point.history.plus_prefix")
+        // マイナスマークの色
+        val minusColor = languages.getTranslationMessage("point.history.minus_prefix")
+        return this.joinToString("\n") { "${color}${df.format(it.first)}: ${plusColor}+${it.second}".replace("+-","${minusColor}-") }
     }
 
     /**

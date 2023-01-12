@@ -16,7 +16,7 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
-    implementation("org.spigotmc:spigot-api:1.18.2-R0.1-SNAPSHOT")
+    compileOnly("org.spigotmc:spigot-api:1.18.2-R0.1-SNAPSHOT")
     implementation("com.zaxxer:HikariCP:5.0.1")
     implementation("com.github.moru348:MinePie:d5a75463ed")
     implementation("org.jetbrains.exposed:exposed:0.17.14")
