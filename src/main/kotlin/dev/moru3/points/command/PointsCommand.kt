@@ -54,8 +54,6 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
     }
 
     fun reloadConfig() {
-        // Configをreloadする。
-        main.config.reloadConfig()
         // languageConfigをreloadする。
         main.languagesConfig.reloadConfig()
         // reloadが完了したあとにconfigを上書き。
@@ -95,8 +93,6 @@ class PointsCommand(val main: Points): CommandExecutor, TabCompleter {
                             // 結果を表示。
                             sender.sendMessage(languages.getTranslationMessage("command.sub.success",point,parsedSelector.map { it.name }.joinToString(",")))
                         }
-                        // configファイルを保存。
-                        main.config.saveConfig()
                     }
                     // 結果発表！！！！！！！！！！
                     "broadcast" -> {

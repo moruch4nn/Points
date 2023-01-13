@@ -14,12 +14,10 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
 
 class Points: JavaPlugin() {
-    val config: Config by lazy { Config(this,"points.yml").apply { saveDefaultConfig() } }
     val languagesConfig: Config by lazy { Config(this, "languages.yml").apply { saveDefaultConfig() } }
     val pluginCommand: PointsCommand by lazy { PointsCommand(this) }
     lateinit var dataSource: HikariDataSource
     override fun onEnable() {
-        config.saveDefaultConfig()
         languagesConfig.saveDefaultConfig()
         super.saveDefaultConfig()
         val config = {path:String->super.getConfig().getString(path)!!}
