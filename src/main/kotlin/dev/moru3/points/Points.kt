@@ -2,12 +2,14 @@ package dev.moru3.points
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import dev.moru3.minepie.Executor.Companion.runTaskTimer
 import dev.moru3.minepie.config.Config
 import dev.moru3.minepie.events.EventRegister.Companion.registerEvent
 import dev.moru3.points.command.PointsCommand
 import dev.moru3.points.database.Histories
 import dev.moru3.points.database.OperationHistory
 import dev.moru3.points.database.Players
+import org.bukkit.Bukkit
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.plugin.java.JavaPlugin
 import org.jetbrains.exposed.sql.*
